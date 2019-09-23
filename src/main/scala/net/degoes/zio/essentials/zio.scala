@@ -3,9 +3,9 @@
 package net.degoes.zio
 package essentials
 
-import java.io.{ File, IOException }
+import java.io.{File, IOException}
 import java.text.SimpleDateFormat
-import java.util.concurrent.{ Executors, TimeUnit }
+import java.util.concurrent.{Executors, TimeUnit}
 
 import zio._
 import zio.internal.PlatformLive
@@ -16,7 +16,7 @@ import java.time.Clock
 import zio.console.Console
 import zio.random.Random
 
-import scala.util.Try
+import scala.util.{Success, Try}
 
 /**
  * `ZIO[R, E, A]` is an immutable data structure that models an effect, which
@@ -581,7 +581,7 @@ object foundations {
         for {
           _     <- putStrLn("enter a guess plz")
           guess <- getStrLn
-          _ <- if (guess.toInt == num) putStrLn(s"done! good guess ${num}")
+          _ <- if (Try(guess).map(_.toInt) == Success(num)) putStrLn(s"done! good guess ${num}")
               else putStrLn("sorry your guess was false ") *> loop(remaining - 1, num)
         } yield ()
       }
