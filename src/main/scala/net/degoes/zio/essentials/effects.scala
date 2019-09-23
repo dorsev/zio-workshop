@@ -21,9 +21,11 @@ object effects {
      */
     final def flatMap[B](f: A => Console[B]): Console[B] =
       self match {
-        case Console.ReadLine(next)        => ???
-        case Console.WriteLine(line, next) => ???
-        case Console.Return(value)         => ???
+        case Console.ReadLine(next) =>
+          ReadLine(line => next(line).flatMap(f))
+        case Console.WriteLine(line, next) =>
+          Console.WriteLine(line, next.flatMap(f))
+        case Console.Return(value) => f(value())
       }
 
     final def map[B](f: A => B): Console[B] = flatMap(f andThen (Console.succeed(_)))
@@ -35,7 +37,7 @@ object effects {
     /**
      * Implement the `zip` function using `flatMap` and `map`.
      */
-    final def zip[B](that: Console[B]): Console[(A, B)] = ???
+    final def zip[B](that: Console[B]): Console[(A, B)] = self.flatMap(a => that.map(b => (a, b)))
   }
   object Console {
     final case class ReadLine[A](next: String => Console[A])      extends Console[A]
@@ -45,9 +47,9 @@ object effects {
     /**
      * Implement the following helper functions:
      */
-    final val readLine: Console[String]              = ???
-    final def writeLine(line: String): Console[Unit] = ???
-    final def succeed[A](a: => A): Console[A]        = ???
+    final val readLine: Console[String]              = ReadLine(succeed(_))
+    final def writeLine(line: String): Console[Unit] = WriteLine(line, succeed(()))
+    final def succeed[A](a: => A): Console[A]        = Return(() => a)
   }
 
   /**
@@ -63,26 +65,30 @@ object effects {
   /**
    * Using the helper functions, write a program that asks the user for their name.
    */
-  val askName: Console[Unit] = ???
+  val askName: Console[Unit] = Console.writeLine("what's your name nigga")
 
   /**
    * Using the helper functions, write a program that reads a line of input from
    * the user.
    */
-  val readName: Console[String] = ???
+  val readName: Console[String] = Console.readLine
 
   /**
    * Write a function that greets the user by the specified name.
    */
   def greetUser(name: String): Console[Unit] =
-    ???
+    Console.writeLine(s"hello ${name}, nice to meet you!")
 
   /***
    * Using `flatMap` and the preceding three functions, write a program that
    * asks the user for their name, reads their name, and greets them.
    */
   val sayHello: Console[Unit] =
-    ???
+    for {
+      _    <- askName
+      name <- readName
+      _    <- greetUser(name)
+    } yield ()
 
   /**
    * Write a program that reads from the console then parse the given input into int if it possible
@@ -110,7 +116,13 @@ object effects {
    * passing every value to a body, which effectfully computes a `B`, and
    * collecting all such `B` values in a list.
    */
-  def foreach[A, B](values: List[A])(body: A => Console[B]): Console[List[B]] = ???
+  def foreach[A, B](values: List[A])(body: A => Console[B]): Console[List[B]] =
+    values.foldRight[Console[List[B]]](Console.succeed(Nil)) {
+      case (a, effect) =>
+        (body(a) zip effect).map {
+          case (b, bs) => b :: bs
+        }
+    }
 
   /**
    * Using `Console.writeLine` and `Console.readLine`, map the following
@@ -139,7 +151,18 @@ object effects {
    */
   val answers3: Console[List[String]] =
     foreach(questions) { question =>
-      ???
+//      Console
+//        .writeLine(question)
+//        .flatMap(_ => {
+//          Console.readLine
+//        })
+
+//      for{
+//        q<-Console.writeLine(question)
+//        r<- Console.readLine
+//      } yield r
+      Console.writeLine(question) *> Console.readLine
+
     }
 
   /**
