@@ -3,7 +3,7 @@
 package net.degoes.zio
 package essentials
 
-import java.io.File
+import java.io.{ File, IOException }
 import java.util.concurrent.{ Executors, TimeUnit }
 
 import zio._
@@ -11,6 +11,10 @@ import zio.internal.PlatformLive
 
 import scala.io.Source
 import java.time.Clock
+
+import zio.console.Console
+
+import scala.util.Try
 
 /**
  * `ZIO[R, E, A]` is an immutable data structure that models an effect, which
@@ -34,28 +38,28 @@ object zio_types {
    * An effect that might fail with an error of type `E` or succeed with a
    * value of type `A`.
    */
-  type FailOrSuccess[E, A] = ???
+  type FailOrSuccess[E, A] = ZIO[Any, E, A]
 
   /**
    * EXERCISE 2
    *
    * An effect that never fails and might succeed with a value of type `A`
    */
-  type Success[A] = ???
+  type Success[A] = ZIO[Any, Nothing, A]
 
   /**
    * EXERCISE 3
    *
    * An effect that runs forever but might fail with `E`.
    */
-  type Forever[E] = ???
+  type Forever[E] = ZIO[Any, E, Nothing]
 
   /**
    * EXERCISE 4
    *
    * An effect that cannot fail or succeed with a value.
    */
-  type NeverStops = ???
+  type NeverStops = ZIO[Any, Nothing, Nothing]
 
   /**
    * EXERCISE 5
@@ -63,7 +67,7 @@ object zio_types {
    * An effect that may fail with a value of type `E` or succeed with a value
    * of type `A`, and doesn't require any specific environment.
    */
-  type IO[E, A] = ???
+  type IO[E, A] = ZIO[Any, E, A]
 
   /**
    * EXERCISE 6
@@ -71,7 +75,7 @@ object zio_types {
    * An effect that may fail with `Throwable` or succeed with a value of
    * type `A`, and doesn't require any specific environment.
    */
-  type Task[A] = ???
+  type Task[A] = ZIO[Any, Throwable, A]
 
   /**
    * EXERCISE 7
@@ -79,7 +83,7 @@ object zio_types {
    * An effect that cannot fail but may succeed with a value of type `A`,
    * and doesn't require any specific environment.
    */
-  type UIO[A] = ???
+  type UIO[A] = ZIO[Any, Nothing, A]
 
 }
 
@@ -91,7 +95,7 @@ object zio_values {
    * Using the `ZIO.succeed` method. Construct an effect that succeeds with the
    * integer `42`, and ascribe the correct type.
    */
-  val ioInt: ??? = ???
+  val ioInt: UIO[Int] = ZIO.succeed(42)
 
   /**
    * EXERCISE 2
@@ -109,7 +113,7 @@ object zio_values {
    * Using the `ZIO.fail` method, construct an effect that fails with the string
    * "Incorrect value", and ascribe the correct type.
    */
-  val incorrectVal: ??? = ???
+  val incorrectVal: IO[String, Nothing] = ZIO.fail("Incorrect value")
 
   /**
    * EXERCISE 4
@@ -118,7 +122,7 @@ object zio_values {
    * `println` method, so you have a pure functional version of `println`, and
    * ascribe the correct type.
    */
-  def putStrLn(line: String): ??? = println(line) ?
+  def putStrLn(line: String): UIO[Unit] = ZIO.effectTotal(println(line))
 
   /**
    * EXERCISE 5
@@ -129,7 +133,7 @@ object zio_values {
    * Note: You will have to use the `.refineOrDie` method to refine the
    * `Throwable` type into something more specific.
    */
-  val getStrLn: Task[String] = ???
+  val getStrLn: IO[IOException, String] = Task(scala.io.StdIn.readLine()).refineToOrDie[IOException]
 
   /**
    * EXERCISE 6
@@ -140,8 +144,10 @@ object zio_values {
    * Note: You will have to use the `.refineOrDie` method to refine the
    * `Throwable` type into something more specific.
    */
-  def readFile(file: File): IO[???, List[String]] =
-    Source.fromFile(file).getLines.toList ?
+  def readFile(file: File): Task[List[String]] =
+    ZIO.effect {
+      Source.fromFile(file).getLines.toList
+    }
 
   /**
    * EXERCISE 7
@@ -171,10 +177,12 @@ object zio_values {
    */
   val scheduledExecutor = Executors.newScheduledThreadPool(1)
   def sleep(l: Long, u: TimeUnit): UIO[Unit] =
-    scheduledExecutor
-      .schedule(new Runnable {
-        def run(): Unit = ???
-      }, l, u) ?
+    UIO.effectAsync[Unit] { callback =>
+      scheduledExecutor
+        .schedule(new Runnable {
+          def run(): Unit = callback(ZIO.unit)
+        }, l, u)
+    }
 
   /**
    * EXERCISE 10
@@ -183,7 +191,9 @@ object zio_values {
    * into a ZIO API that does not use any callbacks.
    */
   def readChunkCB(success: Array[Byte] => Unit, failure: Throwable => Unit): Unit = ???
-  val readChunkIO: Task[Array[Byte]]                                              = ???
+  val readChunkIO: Task[Array[Byte]] = Task.effectAsync[Array[Byte]] { callback =>
+    readChunkCB(bytes => callback(Task.succeed(bytes)), failure => callback(ZIO.fail(failure)))
+  }
 
   /**
    * EXERCISE 11
@@ -208,7 +218,7 @@ object zio_values {
     val sayHelloIO: UIO[Unit] = putStrLn("Hello ZIO!")
 
     //run sayHelloIO using `unsafeRun`
-    val sayHello: Unit = ???
+    val sayHello: Unit = unsafeRun(sayHelloIO)
   }
 }
 
@@ -223,7 +233,7 @@ object zio_operations {
    * Using `ZIO#map`, map an effect that succeeds with an `Int` into one that
    * succeeds with a string.
    */
-  val toStr: UIO[String] = IO.succeed(42) ?
+  val toStr: UIO[String] = IO.succeed(42).map(_.toString)
 
   /**
    * EXERCISE 2
@@ -231,7 +241,7 @@ object zio_operations {
    * Using `ZIO#map`, map an effect that succeeds with an `Int` into one that
    * succeeds with one plus that integer.
    */
-  def addOne(i: Int): UIO[Int] = IO.succeed(i) ?
+  def addOne(i: Int): UIO[Int] = IO.succeed(i).map(_ + 1)
 
   /**
    * EXERCISE 3
@@ -240,7 +250,7 @@ object zio_operations {
    * into one that fails with a string.
    */
   val toFailedStr: IO[String, Nothing] =
-    IO.fail(42) ?
+    IO.fail(42).mapError(_ => "asd")
 
   /**
    * EXERCISE 3
@@ -250,7 +260,7 @@ object zio_operations {
    */
   val attack: UIO[Boolean]  = UIO.effectTotal(println("Attacking!")).const(true)
   val retreat: UIO[Boolean] = UIO.effectTotal(println("Retreating!")).const(false)
-  val action: UIO[Boolean]  = UIO(42) ?
+  val action: UIO[Boolean]  = UIO(42).flatMap(i => if (i % 2 == 0) attack else retreat)
 
   /**
    * EXERCISE 4
@@ -277,7 +287,8 @@ object zio_operations {
     }
 
   def repeatN2[E](n: Int, action: IO[E, Unit]): IO[E, Unit] =
-    ???
+    if (n <= 1) action
+    else action.flatMap(_ => repeatN2(n - 1, action))
 
   /**
    * EXERCISE 6
@@ -316,7 +327,7 @@ object zio_operations {
    *
    * Using `ZIO.foreach`, convert a list of integers into a List of String
    */
-  def convert(l: List[Int]): UIO[List[String]] = l.map(_.toString) ?
+  def convert(l: List[Int]): UIO[List[String]] = UIO.succeed(l.map(_.toString))
 
   /**
    * EXERCISE 11
@@ -331,25 +342,21 @@ object zio_operations {
    *
    * Rewrite the following series of `flatMap`/`map` into a `for` comprehension.
    */
-  val nameAsk: Task[String] =
-    Task
-      .effect(println("What is your name?"))
-      .flatMap(
-        _ =>
-          Task.effect(scala.io.StdIn.readLine()).flatMap(name => Task.effect(println(s"Hello, $name")).map(_ => name))
-      )
+  import zio.console.{ getStrLn, putStrLn }
+  val nameAsk: ZIO[Console, Throwable, String] =
+    for {
+      _    <- Task.effect("what is your name?")
+      name <- getStrLn
+      _    <- putStrLn(s"hello $name")
+    } yield name
 
   /**
    * EXERCISE 13
    *
    * Rewrite the following `for` comprehension into a series of `flatMap`/`map`.
    */
-  val ageAsk: Task[Int] =
-    for {
-      _     <- Task.effect(println("What is your age?"))
-      input <- Task.effect(scala.io.StdIn.readLine())
-      age   <- Task.fromTry(scala.util.Try(input.toInt))
-    } yield age
+  val ageAsk: ZIO[Console, IOException, Task[Int]] =
+    putStrLn("what is your age?").flatMap(_ => getStrLn.map(name => Task.fromTry(Try(name.toInt))))
 
   /**
    * EXERCISE 14
@@ -369,7 +376,24 @@ object zio_operations {
         println("You guessed wrong! The number was " + number)
     }
   }
-  lazy val playGame2: Task[Unit] = ???
+  def randomNumber: UIO[Int] = UIO(scala.util.Random.nextInt(5))
+  def retryParseInputToInt: ZIO[Console, Nothing, Int] = getStrLn.map(_.toInt).catchAll { _ =>
+    putStrLn("please enter a valid number") *> retryParseInputToInt
+  }
+
+  lazy val playGame2 = {
+    for {
+      num <- randomNumber
+      _   <- putStrLn("Enter a number between 0 - 5: ")
+      res <- getStrLn
+              .flatMap(_ => retryParseInputToInt)
+              .flatMap { x =>
+                if (x == num)
+                  putStrLn("you guessed right! the number was " + num)
+                else putStrLn("you guessed wrong! the number was " + num)
+              }
+    } yield res
+  }
 }
 
 object zio_failure {

@@ -3,8 +3,10 @@
 package net.degoes.zio
 package essentials
 
-import java.time.LocalDate
+import java.time.{ LocalDate, OffsetDateTime }
 
+import zio.clock.Clock
+import zio.random.Random
 import zio.{ IO, Task, UIO, ZIO }
 
 /**
@@ -36,16 +38,16 @@ object functions {
    *
    * Convert the following non-deterministic procedure into a deterministic function.
    */
-  def increment1: Int         = scala.util.Random.nextInt(0) + 1
-  def increment2(n: Int): Int = ???
+  def increment1: Int                                         = scala.util.Random.nextInt(0) + 1
+  def increment2(n: Int, rnd: Random): ZIO[Any, Nothing, Int] = rnd.random.nextInt(0).map(_ + 1)
 
   /**
    * EXERCISE 4
    *
    * Convert the following non-deterministic procedure into a deterministic function.
    */
-  def nextDay1: LocalDate        = LocalDate.now.plusDays(1)
-  def nextDay2( /* ??? */ ): ??? = ???
+  def nextDay1: LocalDate                                   = LocalDate.now.plusDays(1)
+  def nextDay2(d: Clock): ZIO[Any, Nothing, OffsetDateTime] = d.clock.currentDateTime.map(_.plusDays(1))
 
   /**
    * EXERCISE 5
@@ -56,7 +58,7 @@ object functions {
     println(s"the value is: $a")
     a
   }
-  def get2( /* ??? */ ): ??? = ???
+  def get2(a: Int) = zio.console.putStr(s"the value is ${a}") *> UIO(a)
 
   /**
    * EXERCISE 6
@@ -65,7 +67,7 @@ object functions {
    */
   def updateArray1[A](arr: Array[A], i: Int, f: A => A): Unit =
     arr.update(i, f(arr(i)))
-  def updateArray2[A]( /* ??? */ ): ??? = ???
+  def updateArray2[A](arr: Array[A], i: Int, f: A => A) =  ???
 
   /**
    * EXERCISE 7

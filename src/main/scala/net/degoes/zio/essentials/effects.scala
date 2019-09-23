@@ -137,13 +137,13 @@ object effects {
       "What is your age?",
       "What is your favorite programming language?"
     )
-  val answers: List[Console[String]] = ???
+  val answers: List[Console[String]] = questions.map(x => Console.writeLine(x).flatMap(_ => Console.readLine))
 
   /**
    * Using `collectAll`, transform `answers` into a program that returns
    * a list of strings.
    */
-  val answers2: Console[List[String]] = ???
+  val answers2: Console[List[String]] = collectAll(answers)
 
   /**
    * Now using only `questions` and `foreach`, write a program that is
