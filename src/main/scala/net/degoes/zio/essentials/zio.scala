@@ -4,6 +4,7 @@ package net.degoes.zio
 package essentials
 
 import java.io.{ File, IOException }
+import java.text.SimpleDateFormat
 import java.util.concurrent.{ Executors, TimeUnit }
 
 import zio._
@@ -13,6 +14,7 @@ import scala.io.Source
 import java.time.Clock
 
 import zio.console.Console
+import zio.random.Random
 
 import scala.util.Try
 
@@ -428,7 +430,7 @@ object zio_failure {
    */
   def divide(n: Int, d: Int): IO[ArithmeticException, Int] =
     if (d == 0) IO.fail(new ArithmeticException("Cannot divide by 0")) else IO.succeed(n / d)
-  val recovered1: UIO[Option[Int]] = divide(100, 0) ?
+  val recovered1: UIO[Option[Int]] = divide(100, 0).fold(_ => None, Some(_))
 
   /**
    * EXERCISE 4
@@ -437,7 +439,10 @@ object zio_failure {
    */
   def printError(err: String): UIO[Unit] = UIO(println(err))
   def printDivision(int: Int): UIO[Unit] = UIO(println("Division is: " + int))
-  val recovered2: UIO[Unit]              = ???
+  val recovered2: UIO[Unit] = divide(100, 0).foldM(
+    err => printError(err.getMessage),
+    succ => printDivision(succ)
+  )
 
   /**
    * EXERCISE 5
@@ -461,7 +466,7 @@ object zio_failure {
    */
   val firstChoice: IO[ArithmeticException, Int] = divide(100, 0)
   val secondChoice: UIO[Int]                    = IO.succeed(-1)
-  val combined: UIO[Int]                        = ???
+  val combined: UIO[Int]                        = firstChoice orElse secondChoice
 
   /**
    * EXERCISE 8
@@ -505,6 +510,83 @@ object zio_failure {
    */
   def readFile(file: File): UIO[List[String]] =
     Task(Source.fromFile(file).getLines.toList) ?
+
+}
+
+object sss extends App {
+
+  override def run(args: List[String]) = foundations.guessGame.fold(_ => 1, _ => 0)
+}
+
+object foundations {
+  import zio.console._
+  import zio.clock._
+  import zio.random._
+
+  def repeatUntil[R, E, A, B](effect: ZIO[R, E, A])(f: A => Task[B]): ZIO[R, Nothing, B] =
+    effect.foldM(
+      _ => repeatUntil(effect)(f),
+      x => f(x).orElse(repeatUntil(effect)(f))
+    )
+
+  def repeatUntil3[R, E, A, B](effect: ZIO[R, E, A])(f: A => Task[B], onFailure: UIO[Any]): ZIO[R, E, B] =
+    effect.flatMap(a => f(a).catchAll(_ => onFailure *> repeatUntil3(effect)(f, onFailure)))
+
+  def repeatUntil2[R, E, A, B](effect: ZIO[R, E, A])(f: PartialFunction[A, B]): ZIO[R, Nothing, B] =
+    effect.eventually.flatMap { x =>
+      if (f.isDefinedAt(x)) ZIO.succeed(f(x))
+      else repeatUntil2(effect)(f)
+    }
+
+  def parseHHmm(text: String): Task[(Int, Int)] = Task.effect {
+    val parsed = new SimpleDateFormat("HH:mm").parse(text)
+
+    (parsed.getHours, parsed.getMinutes)
+  }
+
+  /**
+   * Ex 1
+   * Ask the user for a time in 24 hour format and convert it to AM/PM format.
+   */
+  val timeConversion = for {
+    _                <- putStrLn("please enter a time in 24 hour format(hh:mm): ")
+    time             <- repeatUntil(getStrLn.orDie)(parseHHmm)
+    (hours, minutes) = time
+    conversion       = if (hours > 12) s"${hours - 12}:${minutes}pm" else s"${hours}:${minutes}am"
+    _                <- putStrLn(s"The conversion is: $conversion")
+  } yield conversion
+
+  /**
+   * EX 2
+   * Ask the user fo a time to wait, then sleepm, then finally print our a wakeup msg
+   */
+  import zio.duration._
+  val timerApp =
+    for {
+      _ <- putStrLn("how long sohuld I sleep, in seconds?")
+      v <- repeatUntil(getStrLn)(x => Task(x.toInt))
+      _ <- sleep(v seconds)
+      _ <- putStrLn("time to wakup!")
+    } yield ()
+
+  /**
+   * Ex 3
+   * Choose a number between 0 and 10, and ask the user to guess it.
+   * Give them 4 tries to get it right.
+   */
+  val guessGame = {
+    def loop(remaining: Int, num: Int): ZIO[Random with Console, IOException, Unit] =
+      if (remaining <= 0) putStrLn(s"trouble. you are out of guesses., and the number was $num")
+      else {
+        for {
+          _     <- putStrLn("enter a guess plz")
+          guess <- getStrLn
+          _ <- if (guess.toInt == num) putStrLn(s"done! good guess ${num}")
+              else putStrLn("sorry your guess was false ") *> loop(remaining - 1, num)
+        } yield ()
+      }
+    zio.random.nextInt.flatMap(num => loop(4, num))
+  }
 
 }
 
