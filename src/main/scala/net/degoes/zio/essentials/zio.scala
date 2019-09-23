@@ -3,9 +3,9 @@
 package net.degoes.zio
 package essentials
 
-import java.io.{File, IOException}
+import java.io.{ File, IOException }
 import java.text.SimpleDateFormat
-import java.util.concurrent.{Executors, TimeUnit}
+import java.util.concurrent.{ Executors, TimeUnit }
 
 import zio._
 import zio.internal.PlatformLive
@@ -16,7 +16,7 @@ import java.time.Clock
 import zio.console.Console
 import zio.random.Random
 
-import scala.util.{Success, Try}
+import scala.util.{ Success, Try }
 
 /**
  * `ZIO[R, E, A]` is an immutable data structure that models an effect, which
@@ -515,7 +515,7 @@ object zio_failure {
 
 object sss extends App {
 
-  override def run(args: List[String]) = foundations.guessGame.fold(_ => 1, _ => 0)
+  override def run(args: List[String]) = foundations.numberAdder.fold(_ => 1, _ => 0)
 }
 
 object foundations {
@@ -586,6 +586,20 @@ object foundations {
         } yield ()
       }
     zio.random.nextInt.flatMap(num => loop(4, num))
+  }
+
+  /*
+   * ~ex 4,. A number Adder*/
+  val numberAdder: ZIO[Console, Nothing, Int] = {
+    val askForOneNumber: ZIO[Console, Nothing, Int] =
+      putStrLn("can you please provide a number") *>
+        repeatUntil(getStrLn.orDie)(str => Task(str.toInt))
+
+    for {
+      _            <- putStrLn("please give me anumber !")
+      nums     <- ZIO.collectAll(List(askForOneNumber,askForOneNumber))
+      _ <- putStrLn(s"this is the res ${nums.sum}")
+    } yield nums.sum
   }
 
 }
