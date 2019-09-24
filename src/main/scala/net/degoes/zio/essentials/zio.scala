@@ -3,9 +3,9 @@
 package net.degoes.zio
 package essentials
 
-import java.io.{File, IOException}
+import java.io.{ File, IOException }
 import java.text.SimpleDateFormat
-import java.util.concurrent.{Executors, TimeUnit}
+import java.util.concurrent.{ Executors, TimeUnit }
 
 import zio._
 import zio.internal.PlatformLive
@@ -13,10 +13,10 @@ import zio.internal.PlatformLive
 import scala.io.Source
 import java.time.Clock
 
-import zio.console.{Console, putStrLn}
+import zio.console.{ putStrLn, Console }
 import zio.random.Random
 
-import scala.util.{Success, Try}
+import scala.util.{ Success, Try }
 
 /**
  * `ZIO[R, E, A]` is an immutable data structure that models an effect, which
@@ -843,7 +843,15 @@ object zio_resources {
     } yield bytes
   }
 
-  def readFile2(file: File): IO[Exception, List[Byte]] = ???
+
+  def readAll(is: InputStream, acc: List[Byte]): IO[Exception, List[Byte]] =
+    is.read.flatMap {
+      case None       => IO.succeed(acc.reverse)
+      case Some(byte) => readAll(is, byte :: acc)
+    }
+
+  def readFile2(file: File): IO[Exception, List[Byte]] =
+    InputStream.openFile(file).bracket(_.close.orDie)(readAll(_, Nil))
 
   /**
    * EXERCISE 4
