@@ -515,7 +515,8 @@ object zio_failure {
 
 object sss extends App {
 
-  override def run(args: List[String]) = foundations.numberAdder.fold(_ => 1, _ => 0)
+//  override def run(args: List[String]) = foundations.numberAdder.fold(_ => 1, _ => 0)
+  override def run(args: List[String]) = impure_to_pure.ageExplainer2.fold(_ => 1, _ => 0)
 }
 
 object foundations {
@@ -596,9 +597,9 @@ object foundations {
         repeatUntil(getStrLn.orDie)(str => Task(str.toInt))
 
     for {
-      _            <- putStrLn("please give me anumber !")
-      nums     <- ZIO.collectAll(List(askForOneNumber,askForOneNumber))
-      _ <- putStrLn(s"this is the res ${nums.sum}")
+      _    <- putStrLn("please give me anumber !")
+      nums <- ZIO.collectAll(List(askForOneNumber, askForOneNumber))
+      _    <- putStrLn(s"this is the res ${nums.sum}")
     } yield nums.sum
   }
 
@@ -643,8 +644,22 @@ object impure_to_pure {
         ageExplainer1()
     }
   }
-
-  def ageExplainer2: UIO[Unit] = ???
+  import zio.console._
+  def ageExplainer2: ZIO[Console, Nothing, Unit] =
+    for {
+      _ <- putStrLn("what is your age?")
+      age <- getStrLn
+                   .flatMap(input => Task(input.toInt))
+                   .flatMapError(_ => putStrLn("invalid int"))
+                   .eventually
+      _ <- if (age < 12) putStrLn("You are a kid")
+          else if (age < 20) putStrLn("You are a teenager")
+          else if (age < 30) putStrLn("You are a grownup")
+          else if (age < 50) putStrLn("You are an adult")
+          else if (age < 80) putStrLn("You are a mature adult")
+          else if (age < 100) putStrLn("You are elderly")
+          else putStrLn("You are probably lying.")
+    } yield ()
 
   /**
    * EXERCISE 3
