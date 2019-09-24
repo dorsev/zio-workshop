@@ -3,9 +3,9 @@
 package net.degoes.zio
 package essentials
 
-import java.io.{ File, IOException }
+import java.io.{File, IOException}
 import java.text.SimpleDateFormat
-import java.util.concurrent.{ Executors, TimeUnit }
+import java.util.concurrent.{Executors, TimeUnit}
 
 import zio._
 import zio.internal.PlatformLive
@@ -13,10 +13,10 @@ import zio.internal.PlatformLive
 import scala.io.Source
 import java.time.Clock
 
-import zio.console.Console
+import zio.console.{Console, putStrLn}
 import zio.random.Random
 
-import scala.util.{ Success, Try }
+import scala.util.{Success, Try}
 
 /**
  * `ZIO[R, E, A]` is an immutable data structure that models an effect, which
@@ -649,9 +649,9 @@ object impure_to_pure {
     for {
       _ <- putStrLn("what is your age?")
       age <- getStrLn
-                   .flatMap(input => Task(input.toInt))
-                   .flatMapError(_ => putStrLn("invalid int"))
-                   .eventually
+              .flatMap(input => Task(input.toInt))
+              .flatMapError(_ => putStrLn("invalid int"))
+              .eventually
       _ <- if (age < 12) putStrLn("You are a kid")
           else if (age < 20) putStrLn("You are a teenager")
           else if (age < 30) putStrLn("You are a grownup")
@@ -692,7 +692,7 @@ object zio_interop extends DefaultRuntime {
    * Using `Fiber#toFuture`, convert the following `Fiber` into a `Future`.
    */
   val fiber: Fiber[Throwable, Int] = Fiber.succeed(1)
-  val fToFuture: UIO[Future[Int]]  = ???
+  val fToFuture: UIO[Future[Int]]  = fiber.toFuture
 
   /**
    * EXERCISE 2
@@ -700,15 +700,15 @@ object zio_interop extends DefaultRuntime {
    * Using `Fiber.fromFuture`, convert the following `Future` into a `Fiber`.
    */
   lazy val future1                     = Future(Thread.sleep(1000))(global)
-  val fToFiber: Fiber[Throwable, Unit] = ???
+  val fToFiber: Fiber[Throwable, Unit] = Fiber.fromFuture(future1)
 
   /**
    * EXERCISE 3
    *
    * Using `Task#toFuture`, unsafely convert the following `Task` into `Future`.
    */
-  val task1: Task[Int]       = IO.effect("wrong".toInt)
-  val tToFuture: Future[Int] = task1 ?
+  val task1: Task[Int]            = IO.effect("wrong".toInt)
+  val tToFuture: UIO[Future[Int]] = task1.toFuture
 
   /**
    * EXERCISE 4
@@ -717,15 +717,15 @@ object zio_interop extends DefaultRuntime {
    * ZIO `Task`.
    */
   lazy val future2        = Future.successful("Hello World")
-  val task2: Task[String] = ???
+  val task2: Task[String] = Task.fromFuture(_ => future2)
 
   /**
    * EXERCISE 5
    *
    * Use `Task.fromTry` to convert the `Try` into a ZIO `Task`.
    */
-  val tryValue  = scala.util.Failure(new Throwable("Uh oh"))
-  val tryEffect = ZIO.fromTry(???)
+  val tryValue: Try[String]   = scala.util.Failure(new Throwable("Uh oh"))
+  val tryEffect: Task[String] = ZIO.fromTry(tryValue)
 
   /**
    * EXERCISE 6
@@ -733,7 +733,7 @@ object zio_interop extends DefaultRuntime {
    * Use `IO.fromOption` to convert the `Option` into a ZIO `IO`.
    */
   val optionValue  = Some("foo")
-  val optionEffect = ZIO.fromOption(???)
+  val optionEffect = ZIO.fromOption(optionValue)
 
   /**
    * EXERCISE 7
@@ -741,7 +741,7 @@ object zio_interop extends DefaultRuntime {
    * Use `IO.fromEither` to convert the `Either` into a ZIO `IO`.
    */
   val eitherValue  = Right("foo")
-  val eitherEffect = ZIO.fromEither(???)
+  val eitherEffect = ZIO.fromEither(eitherValue)
 }
 
 /**
@@ -781,6 +781,8 @@ object zio_resources {
       } finally if (handle != null) closeFile(handle)
     }
 
+    def zioSafeResource(file: String) = Managed.make(UIO(openFile(file)))(x => UIO(closeFile(_)))
+
     def finallyPuzzler(): Unit =
       try {
         try throw new Error("e1")
@@ -803,7 +805,10 @@ object zio_resources {
       throw new Exception("Boom!")
     } finally i -= 1
 
-  val noChange2: Task[Unit] = ???
+  val noChange2: Task[Unit] =
+    UIO(i + 1) *> Task
+      .fail(new Exception("boom"))
+      .ensuring(UIO(i -= 1))
 
   /**
    * EXERCISE 2
@@ -814,8 +819,9 @@ object zio_resources {
   def tryCatch1(): Unit =
     try throw new Exception("Uh oh")
     finally println("On the way out...")
-  val tryCatch2: Task[Unit] =
-    ???
+
+  val tryCatch2: ZIO[Console, Exception, Nothing] =
+    IO.fail(new Exception("oh uh!")).ensuring(putStrLn("on the way out"))
 
   /**
    * EXERCISE 3
