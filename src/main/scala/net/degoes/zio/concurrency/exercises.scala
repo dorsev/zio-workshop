@@ -3,18 +3,30 @@
 package net.degoes.zio.concurrency
 
 import java.time.LocalDate
+import java.util.concurrent.TimeUnit
 
 import zio._
 import zio.clock.Clock
 import zio.console.{ putStrLn, Console }
 import zio.duration._
 import zio.stream._
-
 import net.degoes.zio._
 
+import scala.collection.immutable
 import scala.concurrent.duration.Duration
 
 object zio_fibers {
+
+  val example: ZIO[Console with Clock, Nothing, Unit] =
+    for {
+      _     <- putStrLn("starting")
+      fiber <- (clock.sleep(10.seconds) *> putStrLn("hello world") *> IO.succeed(42)).fork
+      exit  <- fiber.interrupt
+      _     <- clock.sleep(5.seconds)
+      _     <- putStrLn("goodbye world")
+    } yield ()
+
+  def raceAll[E, A](a: Task[A], b: Task[A]) = a.either.race(b.either)
 
   /**
    * A Fiber is a lightweight Thread of execution. They are spawned by forking
@@ -54,7 +66,7 @@ object zio_fibers {
    * console in an infinite loop.
    */
   val putStrLForeverF: ZIO[Console, Nothing, Fiber[Nothing, Nothing]] =
-    console.putStrLn("Hello ZIO") ?
+    console.putStrLn("Hello ZIO").forever.fork
 
   /**
    * EXERCISE 8
@@ -62,7 +74,7 @@ object zio_fibers {
    * Construct a "trivial" fiber that has already succeeded with an integer
    * value using `Fiber.succeed`.
    */
-  val trivialSuccess: Fiber[Nothing, Int] = ???
+  val trivialSuccess: Fiber[Nothing, Int] = Fiber.succeed(42)
 
   /**
    * EXERCISE 9
@@ -70,7 +82,15 @@ object zio_fibers {
    * Construct a "trivial" fiber that has already failed with a string
    * value using `Fiber.fail`.
    */
-  val trivialFailure: Fiber[String, Nothing] = ???
+  val trivialFailure: Fiber[String, Nothing] = Fiber.fail("oh damn")
+
+  def parallelize[R, E, A, B](left: ZIO[R, E, A], right: ZIO[R, E, B]): ZIO[R, E, (A, B)] =
+    for {
+      left  <- left.fork
+      right <- right.fork
+      a     <- left.join
+      b     <- right.join
+    } yield (a, b)
 
   /**
    * EXERCISE 10
@@ -127,14 +147,14 @@ object zio_fibers {
    *
    * Using `FiberRef.make`, create a `FiberRef` that is initially set to 0.
    */
-  val fiberRef: UIO[FiberRef[Int]] = ???
+  val fiberRef: UIO[FiberRef[Int]] = FiberRef.make(0)
 
   /**
    * EXERCISE 16
    *
    * Using `FiberRef#set`, set the passed in `FiberRef` to 42.
    */
-  def updateRef(ref: Ref[Int]): UIO[Unit] = ???
+  def updateRef(ref: Ref[Int]): UIO[Unit] = ref.set(42)
 }
 
 object zio_parallelism {
@@ -147,11 +167,11 @@ object zio_parallelism {
    */
   case class User(id: Int, name: String, subscription: LocalDate)
 
-  def findFirstAndLast(users: List[User])(p: LocalDate => Boolean): ??? = {
+  def findFirstAndLast(users: List[User])(p: LocalDate => Boolean): UIO[(Option[User], Option[User])] = {
     val findFirst: UIO[Option[User]] = Task.effectTotal(users.find(user => p(user.subscription)))
     val findLast: UIO[Option[User]]  = Task.effectTotal(users.reverse.find(user => p(user.subscription)))
 
-    ???
+    findFirst.zipPar(findLast)
   }
 
   /**
@@ -167,8 +187,8 @@ object zio_parallelism {
 
   def getUser(id: Int): IO[String, User] = IO.effect(users(id)).mapError(_.getMessage)
 
-  def getAllUsers(ids: List[Int]): IO[String, ???] =
-    ???
+  def getAllUsers(ids: List[Int]): ZIO[Any, String, List[User]] =
+    ZIO.sequenceParN(10)(users.map { case (id, user) => getUser(id) })
 
   /**
    * EXERCISE 3
@@ -218,7 +238,7 @@ object zio_parallelism {
   def getUserById(userId: Int, db: Database): Task[User] = ???
   /* Implement this one: */
   def getUserById1(userId: Int): Task[User] =
-    ???
+    getUserById(userId, Database.Primary).race(getUserById(userId, Database.Secondary))
 
   /**
    * EXERCISE 7
@@ -718,7 +738,7 @@ object zio_schedule {
    *
    * Using `Schedule.recurs`, create a schedule that recurs 5 times.
    */
-  val fiveTimes: Schedule[Any, Int] = ???
+  val fiveTimes: Schedule[Any, Int] = Schedule.recurs(5)
 
   /**
    * EXERCISE 2
@@ -726,14 +746,14 @@ object zio_schedule {
    * Using the `ZIO.repeat`, repeat printing "Hello World" five times to the
    * console.
    */
-  val repeated1 = putStrLn("Hello World") ?
+  val repeated1 = putStrLn("Hello World").repeat(fiveTimes)
 
   /**
    * EXERCISE 3
    *
    * Using `Schedule.spaced`, create a schedule that recurs forever every 1 second.
    */
-  val everySecond: Schedule[Any, Int] = ???
+  val everySecond: Schedule[Any, Int] = Schedule.spaced(zio.duration.Duration.apply(1, TimeUnit.SECONDS))
 
   /**
    * EXERCISE 4

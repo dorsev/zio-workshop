@@ -843,7 +843,6 @@ object zio_resources {
     } yield bytes
   }
 
-
   def readAll(is: InputStream, acc: List[Byte]): IO[Exception, List[Byte]] =
     is.read.flatMap {
       case None       => IO.succeed(acc.reverse)
@@ -930,7 +929,7 @@ object zio_environment {
    * Write the type of a program that requires `scalaz.zio.clock.Clock` and which
    * could fail with `E` or succeed with `A`.
    */
-  type ClockIO[E, A] = ???
+  type ClockIO[E, A] = ZIO[Clock, E, A]
 
   /**
    * EXERCISE 2
@@ -962,7 +961,7 @@ object zio_environment {
    * Write the type of a program that requires `Clock` and `System` and which
    * could fail with `E` or succeed with `A`:
    */
-  type ClockWithSystemIO[E, A] = ???
+  type ClockWithSystemIO[E, A] = ZIO[Clock with System, E, A]
 
   /**
    * EXERCISE 6
@@ -970,7 +969,7 @@ object zio_environment {
    * Write the type of a program that requires `Console` and `System` and
    * which could fail with `E` or succeed with `A`:
    */
-  type ConsoleWithSystemIO[E, A] = ???
+  type ConsoleWithSystemIO[E, A] = ZIO[Console with System, E, A]
 
   /**
    * EXERCISE 7
@@ -978,7 +977,7 @@ object zio_environment {
    * Write the type of a program that requires `Clock`, `System` and `Random`
    * and which could fail with `E` or succeed with `A`:
    */
-  type ClockWithSystemWithRandom[E, A] = ???
+  type ClockWithSystemWithRandom[E, A] = ZIO[Console with zio.console.Console with zio.random.Random, E, A]
 
   /**
    * EXERCISE 8
@@ -1010,7 +1009,11 @@ object zio_environment {
    * In a for comprehension, call various methods in zio.clock._, zio.console._,
    * and zio.random._, and identify the composite return type.
    */
-  val program = ???
+  val program: ZIO[Clock with Random with Console, Nothing, Long] = for {
+    _    <- zio.console.putStrLn("hello my friend")
+    _    <- zio.random.nextInt(12)
+    time <- zio.clock.nanoTime
+  } yield time
 
   /**
    * Build a new Service called `Configuration`
@@ -1026,14 +1029,14 @@ object zio_environment {
    * Build a `Config` module that has a reference to a `Config.Service` trait.
    */
   trait Config {
-    val config: ???
+    val config: Config.Service
   }
 
   object Config {
     // Service: definition of the methods provided by module:
     trait Service {
-      val port: UIO[Int]
-      val host: UIO[String]
+      val port: Int
+      val host: String
     }
 
     /**
@@ -1042,7 +1045,10 @@ object zio_environment {
      * Implement a production version of the `Config` module.
      */
     trait Live extends Config {
-      val config: ??? = ???
+      val config: Config.Service = new Config.Service {
+        override val port: Int    = 1991
+        override val host: String = "localhost"
+      }
     }
     object Live extends Live
   }
@@ -1054,8 +1060,8 @@ object zio_environment {
    * and delegate to the functions inside the `Config` service.
    */
   object helpers {
-    val port: ZIO[Config, Nothing, Int]    = ???
-    val host: ZIO[Config, Nothing, String] = ???
+    val port: ZIO[Config, Nothing, Int]    = ZIO.accessM(m => UIO.apply(m.config.port))
+    val host: ZIO[Config, Nothing, String] = ZIO.accessM(m => UIO.apply(m.config.host))
   }
 
   /**
@@ -1064,7 +1070,10 @@ object zio_environment {
    * Write a program that depends on `Config` and `Console` and use the Scala
    * compiler to infer the correct type.
    */
-  val configProgram: ZIO[???, ???, ???] = ???
+  val configProgram: ZIO[Config with Console, Nothing, Unit] = for {
+    port <- helpers.port
+    _    <- putStrLn(s"the port is $port")
+  } yield ()
 
   /**
    * EXERCISE 16
@@ -1072,7 +1081,7 @@ object zio_environment {
    * Give the `configProgram` its dependencies by supplying it with both `Config`
    * and `Console` modules, and determine the type of the resulting effect.
    */
-  val provided = configProgram.provide(???)
+  val provided: IO[Nothing, Unit] = configProgram.provide(new Config.Live with Console.Live{})
 
   /**
    * EXERCISE 17
