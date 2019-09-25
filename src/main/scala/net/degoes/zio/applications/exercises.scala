@@ -17,6 +17,58 @@ import net.degoes.zio.applications.hangman.GuessResult.Unchanged
 import net.degoes.zio.applications.hangman.GuessResult.Lost
 import java.util.concurrent.ConcurrentHashMap
 
+object sharding extends App {
+
+  /**
+   * Create N workers reading from a Queue, if one of them fails,
+   * then wait for the other ones to process the current item, but
+   * terminate all the workers.
+   */
+  def shard[R, E, A](queue: Queue[A], n: Int, workerA: A => ZIO[R, E, Unit]): ZIO[R, E, Unit] = {
+    def worker(killSignal: Promise[Nothing, UIO[_]]): ZIO[R, Nothing, Unit] =
+      queue.take.flatMap(x => workerA(x).uninterruptible).forever.catchAll(_ => killSignal.await).unit
+
+    for {
+      promise <- Promise.make[Nothing, UIO[_]]
+      fiber   <- ZIO.forkAll(List.fill(n)(worker(promise)))
+      _       <- promise.succeed(fiber.interrupt.fork)
+    } yield ()
+  }
+
+  def run(args: List[String]) = ???
+}
+
+object alerting {
+  import zio.stm._
+
+  def transfer(amount: Double, from: TRef[Double], to: TRef[Double]): UIO[Unit] =
+    STM.atomically {
+      for {
+        f1 <- from.get
+        _  <- STM.check(f1 >= amount)
+        _  <- from.update(x => x - amount)
+        _  <- to.update(_ + amount)
+      } yield ()
+    }
+
+  final case class Metrics(
+    hourlyErrors: TRef[Int]
+  )
+
+  final case class Email(value: String)
+
+  final case class Engineer(email: Email)
+
+  def sendSystemEmail(to: Email, subject: String, body: String): UIO[Unit] = ???
+
+  /**
+   * Use STM to alert an engineer when the number of hourly errors exceeds
+   * 100.
+   */
+  def alertEngineer(metrics: Metrics, onDuty: TRef[Engineer]): UIO[Unit] =
+    ???
+}
+
 object hangman extends App {
 
   /**
