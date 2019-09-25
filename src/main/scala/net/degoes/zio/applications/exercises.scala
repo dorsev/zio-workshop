@@ -66,7 +66,13 @@ object alerting {
    * 100.
    */
   def alertEngineer(metrics: Metrics, onDuty: TRef[Engineer]): UIO[Unit] =
-    ???
+    STM.atomically {
+      for {
+        he        <- metrics.hourlyErrors.get
+        _         <- STM.check(he > 100)
+        enginerer <- onDuty.get
+      } yield sendSystemEmail(enginerer.email, "", "")
+    }
 }
 
 object hangman extends App {
@@ -76,7 +82,14 @@ object hangman extends App {
    * `Random` effects.
    */
   lazy val myGame: ZIO[Console with Random, IOException, Unit] =
-    ???
+    for {
+      _     <- putStrLn("Welcome to purely functional hangmana!")
+      word  <- chooseWord
+      n     <- getName
+      state = State(n, Set(), word)
+      _     <- renderState(state)
+      _     <- gameLoop(state)
+    } yield ()
 
   final case class State(name: String, guesses: Set[Char], word: String) {
     final def failures: Int = (guesses -- word.toSet).size
@@ -108,7 +121,21 @@ object hangman extends App {
    * Implement the main game loop, which gets choices from the user until
    * the game is won or lost.
    */
-  def gameLoop(state0: State): ZIO[Console, IOException, Unit] = ???
+  def gameLoop(state0: State): ZIO[Console, IOException, Unit] =
+    for {
+      char   <- getChoice
+      state  = state0.addChar(char)
+      result = guessResult(state0, state, char)
+      _      <- renderState(state)
+      shouldContinue <- result match {
+                         case Won       => putStrLn("you won the game!").as(false)
+                         case Unchanged => putStrLn(s"u guessed that character ${state.name}").as(true)
+                         case Correct   => putStrLn(s"good job, you guess correctly ${state.name}").as(true)
+                         case Incorrect => putStrLn(s"u guessed that character incorrectly ${state.name}").as(true)
+                         case Lost      => putStrLn(s"u the word was  ${state.word}").as(false)
+                       }
+      _ <- if (shouldContinue) gameLoop(state) else ZIO.unit
+    } yield ()
 
   def renderState(state: State): ZIO[Console, Nothing, Unit] = {
 
@@ -136,18 +163,25 @@ object hangman extends App {
    * Implement an effect that gets a single, lower-case character from
    * the user.
    */
-  lazy val getChoice: ZIO[Console, IOException, Char] = ???
+  lazy val getChoice: ZIO[Console, IOException, Char] = putStrLn("enter a char") *> getStrLn
+    .map(_.toLowerCase.toList)
+    .flatMap {
+      case char :: Nil if char.isLetterOrDigit => ZIO.succeed(char)
+      case _                                   => getChoice
+    }
 
   /**
    * Implement an effect that prompts the user for their name, and
    * returns it.
    */
-  lazy val getName: ZIO[Console, IOException, String] = ???
+  lazy val getName: ZIO[Console, IOException, String] = putStrLn("what is your name?") *> getStrLn.map(name => name)
 
   /**
    * Implement an effect that chooses a random word from the dictionary.
    */
-  lazy val chooseWord: ZIO[Random, Nothing, String] = ???
+  lazy val chooseWord: ZIO[Random, Nothing, String] = for {
+    rand <- zio.random.nextInt(Dictionary.size)
+  } yield Dictionary(rand)
 
   val Dictionary = List(
     "aaron",
