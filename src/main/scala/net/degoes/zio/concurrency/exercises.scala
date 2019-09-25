@@ -268,7 +268,7 @@ object zio_ref {
    *
    * Using `Ref.make`, create a `Ref` that is initially `0`.
    */
-  val makeZero: UIO[Ref[Int]] = 0 ?
+  val makeZero: UIO[Ref[Int]] = Ref.make(0)
 
   /**
    * EXERCISE 2
@@ -279,8 +279,8 @@ object zio_ref {
   val incrementedBy10: UIO[Int] =
     for {
       ref   <- makeZero
-      _     <- (ref ? : UIO[Unit])
-      value <- (ref ? : UIO[Int])
+      _     <- ref.set(10): UIO[Unit]
+      value <- ref get: UIO[Int]
     } yield value
 
   /**
@@ -291,7 +291,7 @@ object zio_ref {
   val atomicallyIncrementedBy10: UIO[Int] =
     for {
       ref   <- makeZero
-      value <- (ref ? : UIO[Int])
+      value <- ref update (_ + 10): UIO[Int]
     } yield value
 
   /**
@@ -299,8 +299,12 @@ object zio_ref {
    *
    * Using `Ref#update`, refactor this contentious code to be atomic.
    */
+  def worker(ref: Ref[Int]) = ref.update(_ + 10)
+
   def makeContentious1(n: Int): UIO[Fiber[Nothing, List[Nothing]]] =
-    Ref.make(0).flatMap(ref => IO.forkAll(List.fill(n)(ref.get.flatMap(value => ref.set(value + 10)).forever)))
+    Ref
+      .make(0)
+      .flatMap(ref => IO.forkAll(List.fill(n)(worker(ref).forever)))
   def makeContentious2(n: Int): UIO[Fiber[Nothing, List[Nothing]]] =
     ???
 
@@ -313,7 +317,7 @@ object zio_ref {
   val atomicallyIncrementedBy10PlusGet: UIO[String] =
     for {
       ref   <- makeZero
-      value <- ref.modify(v => (???, v + 10))
+      value <- ref.modify(v => (v.toString, v + 10))
     } yield value
 
   /**
@@ -396,7 +400,7 @@ object zio_promise {
       promise <- Promise.make[Nothing, Int]
       _       <- (clock.sleep(10.seconds) *> promise.succeed(42)).fork
       _       <- putStrLn("Waiting for promise to be completed...")
-      value   <- (promise ? : UIO[Int])
+      value   <- (promise.await: UIO[Int])
       _       <- putStrLn("Got: " + value)
     } yield value
 
@@ -411,7 +415,7 @@ object zio_promise {
       promise <- Promise.make[Error, Int]
       _       <- (clock.sleep(10.seconds) *> promise.fail(new Error("Uh oh!"))).fork
       _       <- putStrLn("Waiting for promise to be completed...")
-      value   <- (promise ? : IO[Error, Int])
+      value   <- (promise.await: IO[Error, Int])
       _       <- putStrLn("This line will NEVER be executed")
     } yield value
 
@@ -425,7 +429,7 @@ object zio_promise {
     for {
       promise <- Promise.make[Nothing, Int]
       _       <- promise.interrupt.delay(10.milliseconds).fork
-      value   <- (promise ? : IO[Nothing, Int])
+      value   <- promise.await: IO[Nothing, Int]
       _       <- putStrLn("This line will NEVER be executed")
     } yield value
 
@@ -438,7 +442,40 @@ object zio_promise {
   trait Cache[E, V] {
     def get: IO[E, V]
   }
-  def makeCache[E, V](getter: IO[E, V], refresh: Schedule[V, Any]): Cache[E, V] = ???
+//  sealed trait StatusCache[+A]
+//  object CacheStatus {
+//    case object Empty            extends StatusCache[Nothing]
+//    case object Pending          extends StatusCache[Nothing]
+//    case class Full[A](value: A) extends StatusCache[A]
+//  }
+
+  def makeCacheHot[E, V](getter: IO[E, V], refresh: zio.duration.Duration): ZIO[Clock, Nothing, Cache[E, V]] =
+    for {
+      either <- getter.either
+      ref    <- Ref.make[Either[E, V]](either)
+      _      <- (clock.sleep(refresh) *> getter.either.flatMap(ref.set)).fork.forever
+    } yield
+      new Cache[E, V] {
+        override def get: IO[E, V] = ref.get.flatMap(ZIO.fromEither(_))
+      }
+
+  def makeCache[E, V](getter: IO[E, V], refresh: zio.duration.Duration): ZIO[Clock, Nothing, Cache[E, V]] =
+    for {
+      clock         <- ZIO.access[Clock](identity)
+      ref           <- Ref.make[Option[Promise[E, V]]](None)
+      scheduleEvict = ref.set(None).delay(refresh).provide(clock).fork
+    } yield
+      new Cache[E, V] {
+        val get: IO[E, V] =
+          for {
+            promise <- Promise.make[E, V]
+            effectV <- ref.modify {
+                        case None          => (getter.to(promise) *> scheduleEvict *> promise.await, Some(promise))
+                        case Some(promise) => (promise.await, Some(promise))
+                      }
+            value <- effectV
+          } yield value
+      }
 }
 
 object zio_queue {
@@ -448,7 +485,12 @@ object zio_queue {
    *
    * Using `Queue.bounded`, create a queue for `Int` values with a capacity of 10.
    */
-  val makeQueue: UIO[Queue[Int]] = ???
+  val makeQueue: UIO[Int] = for {
+    q     <- Queue.bounded[Int](20)
+    fiber <- q.take.fork
+    _     <- q.offer(1)
+    value <- fiber.join
+  } yield value
 
   /**
    * EXERCISE 2
@@ -457,8 +499,8 @@ object zio_queue {
    */
   val offered1: UIO[Unit] =
     for {
-      queue <- makeQueue
-      _     <- (queue ? : UIO[Boolean])
+      queue <- Queue.bounded[Int](20)
+      _     <- queue.offer(42)
     } yield ()
 
   /**
@@ -468,7 +510,7 @@ object zio_queue {
    */
   val taken1: UIO[Int] =
     for {
-      queue <- makeQueue
+      queue <- Queue.bounded[Int](20)
       _     <- queue.offer(42)
       value <- (queue ? : UIO[Int])
     } yield value
@@ -481,7 +523,7 @@ object zio_queue {
    */
   val offeredTaken1: UIO[(Int, Int)] =
     for {
-      queue <- makeQueue
+      queue <- Queue.bounded[Int](20)
       _     <- (??? : UIO[Unit]).fork
       v1    <- (queue ? : UIO[Int])
       v2    <- (queue ? : UIO[Int])
@@ -500,6 +542,21 @@ object zio_queue {
       _     <- (??? : ZIO[Console, Nothing, Nothing]).fork
       vs    <- (??? : UIO[List[Boolean]])
     } yield vs
+
+  val effect: ZIO[Any, Nothing, Unit] =
+    for {
+      queue <- Queue.bounded[Int](20)
+      _     <- ZIO.foreach_(0 to 1000)(v => queue.offer(v)).fork
+      value <- queue.takeAll
+    } yield ()
+
+  val printForEver = {
+    for {
+      q      <- Queue.bounded[Int](20)
+      worker <- q.take.flatMap(value => putStrLn(s"$value")).forever.fork
+      _      <- ZIO.foreach_(0 to 100)(value => q.offer(value))
+    } yield ()
+  }
 
   /**
    * EXERCISE 6
@@ -613,6 +670,7 @@ object zio_semaphore {
 }
 
 object zio_stream {
+
   import zio.stream.Stream
 
   /**
@@ -620,14 +678,14 @@ object zio_stream {
    *
    * Create a stream containing 1, 2, and 3 using `Stream.apply`
    */
-  val streamStr: Stream[Nothing, Int] = ???
+  val streamStr: Stream[Nothing, Int] = Stream(1, 2, 3) //.tap()
 
   /**
    * EXERCISE 2
    *
    * Create a stream using `Stream.fromIterable`
    */
-  val stream1: Stream[Nothing, Int] = (1 to 42) ?
+  val stream1: Stream[Nothing, Int] = Stream.fromIterable(1 to 42)
 
   /**
    * EXERCISE 3
@@ -635,14 +693,15 @@ object zio_stream {
    * Create a stream using `Stream.fromChunk`.
    */
   val chunk: Chunk[Int]             = Chunk(43 to 100: _*)
-  val stream2: Stream[Nothing, Int] = ???
+  val stream2: Stream[Nothing, Int] = Stream.fromChunk(chunk)
 
   /**
    * EXERCISE 4
    *
    * Make a queue and use it to create a stream using `Stream.fromQueue`.
    */
-  val stream3: UIO[Stream[Nothing, Int]] = ???
+  val stream3: UIO[Stream[Nothing, Int]] =
+    Queue.bounded[Int](1).map(Stream.fromQueue)
 
   /**
    * EXERCISE 5
@@ -650,7 +709,7 @@ object zio_stream {
    * Create a singleton stream from an effect producing a String using
    * `Stream.fromEffect`.
    */
-  val stream4: Stream[Nothing, String] = ???
+  val stream4 = ZStream.fromEffect(console.getStrLn)
 
   /**
    * EXERCISE 6
@@ -672,16 +731,16 @@ object zio_stream {
   /**
    * EXERCISE 8
    *
-   * Using `Stream#withEffect`, log every element of `stream1` to the console.
+   * Using `Stream#tap`, log every element of `stream1` to the console.
    */
-  val loggedInts: ZStream[Console, Nothing, Int] = stream1 ?
+  val loggedInts: ZStream[Console, Nothing, Int] = ???
 
   /**
    * EXERCISE 9
    *
    * Using `Stream#filter`, filter for just the even numbers in `stream1`.
    */
-  val evenNumbers: Stream[Nothing, Int] = stream1 ?
+  val evenNumbers: Stream[Nothing, Int] = stream1.filter(_ % 2 == 0)
 
   /**
    * EXERCISE 10
@@ -689,28 +748,28 @@ object zio_stream {
    * Using `Stream#takeWhile`, take the numbers that are less than 10 from
    * `stream1`.
    */
-  val lessThan10: Stream[Nothing, Int] = stream1 ?
+  val lessThan10: Stream[Nothing, Int] = stream1.takeWhile(_ < 10)
 
   /**
    * EXERCISE 11
    *
    * Using `Stream#foreach`, Print out each value in the stream.
    */
-  val printAll: ZIO[Console, Nothing, Unit] = stream1 ?
+  val printAll: ZIO[Console, Nothing, Unit] = stream1.foreach(x => putStrLn(x + ""))
 
   /**
    * EXERCISE 12
    *
    * Using `Stream#map`, convert every `Int` into a `String`.
    */
-  val toStr: Stream[Nothing, String] = stream1 ?
+  val toStr: Stream[Nothing, String] = stream1.map(_.toString)
 
   /**
    * EXERCISE 13
    *
    * Using `Stream#merge`, merge two streams together.
    */
-  val mergeBoth: Stream[Nothing, Int] = (stream1, stream2) ?
+  val mergeBoth: Stream[Nothing, Int] = stream1.merge(stream2)
 
   /**
    * EXERCISE 14

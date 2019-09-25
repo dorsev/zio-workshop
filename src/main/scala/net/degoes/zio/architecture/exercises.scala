@@ -11,7 +11,6 @@ import zio.internal.PlatformLive
 import zio.internal.Executor
 import scala.concurrent.ExecutionContext
 import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.Executors
 import zio.blocking.Blocking
 import java.sql.ResultSet
 import scala.concurrent.Await
@@ -167,7 +166,7 @@ object errors {
               responder(response).foldM(
                 _ => loop,
                 _ => loop
-              )
+            )
           )
       })
 
@@ -176,6 +175,24 @@ object errors {
 }
 
 object threads {
+
+  def fromFutureOption[A](v: scala.concurrent.Future[Option[A]]): IO[Option[Throwable], A] =
+    Task
+      .fromFuture(_ => v)
+      .foldM(
+        throwable => ZIO.fail(Some(throwable)), {
+          case None    => ZIO.fail(None)
+          case Some(a) => ZIO.succeed(a)
+        }
+      )
+
+  lazy val work: Task[String] = ???
+
+  val result: ZIO[Any, Nothing, Unit] = (for {
+    f1 <- work.fork
+    f2 <- work.fork
+    f3 <- work.fork
+  } yield ()).supervised
 
   /**
    * EXERCISE 1
@@ -217,8 +234,8 @@ object threads {
    *
    * Create a ZIO `Executor` from a Java `ThreadPoolExecutor`.
    */
-  lazy val pool         = new ThreadPoolExecutor(???, ???, ???, ???, ???)
-  lazy val poolExecutor = Executor.fromThreadPoolExecutor(_ => 1024)(pool)
+  lazy val pool: ThreadPoolExecutor = new ThreadPoolExecutor(???, ???, ???, ???, ???)
+  lazy val poolExecutor: Executor = Executor.fromThreadPoolExecutor(_ => 1024)(pool)
 
   /**
    * EXERCISE 6
@@ -226,7 +243,7 @@ object threads {
    * Using `ZIO#lock`, make an effect that locks `effect1` to the pool you
    * created in Exercise 5.
    */
-  lazy val lockedEffect1 = effect1 ?
+  lazy val lockedEffect1 = effect1.lock(poolExecutor)
 
   /**
    * EXERCISE 7
@@ -402,7 +419,7 @@ object dependencies {
       env =>
         UIO {
           ???
-        }
+      }
     )
 
   /**
